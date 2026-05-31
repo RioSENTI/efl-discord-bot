@@ -454,24 +454,20 @@ async def on_app_command_completion(
 
 @bot.event
 async def on_ready():
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS money (
-            team TEXT PRIMARY KEY,
-            balance INTEGER
-        )
-    """)
-    conn.commit()
-
     try:
-        guild = discord.Object(id=GUILD_ID)
+        # 🔥 WIPE GLOBAL COMMANDS
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()
 
-        await bot.tree.sync(guild=discord.Object(id=GUILD_ID))  # 🔥 removes duplicates
+        # 🔥 WIPE GUILD COMMANDS
+        guild = discord.Object(id=GUILD_ID)
+        bot.tree.clear_commands(guild=guild)
         await bot.tree.sync(guild=guild)
 
-        print("Cleaned + synced commands")
+        print("Wiped all commands (global + guild)")
 
     except Exception as e:
-        print(f"Sync error: {e}")
+        print(f"Error wiping commands: {e}")
 
     print(f"Bot ready as {bot.user}")
 
