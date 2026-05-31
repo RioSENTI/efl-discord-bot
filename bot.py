@@ -463,13 +463,12 @@ async def on_ready():
     conn.commit()
 
     try:
-        # FORCE GUILD SYNC (recommended for Railway)
-        GUILD_ID = 1507809911437000837  # <-- put your server ID here
-
         guild = discord.Object(id=GUILD_ID)
+
+        await bot.tree.clear_commands(guild=guild)  # 🔥 removes duplicates
         await bot.tree.sync(guild=guild)
 
-        print(f"Synced slash commands to guild {GUILD_ID}")
+        print("Cleaned + synced commands")
 
     except Exception as e:
         print(f"Sync error: {e}")
