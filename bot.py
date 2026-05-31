@@ -1,4 +1,5 @@
 import os
+import psycopg2
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -8,6 +9,10 @@ import aiohttp
 # ---------------- CONFIG ---------------- #
 
 TOKEN = os.getenv("DISCORD_TOKEN")
+DATABASE_URL = os.getenv("postgresql://postgres:azUMsAnjSitSPHzQMuOeERutiItpzKmU@postgres.railway.internal:5432/railway")
+
+conn = psycopg2.connect(DATABASE_URL)
+cursor = conn.cursor()
 
 CHANNELS = {
     "announcements": 1507838489587224576,
@@ -78,9 +83,30 @@ def save_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-data = load_data()
+
 
 # ---------------- HELPERS ---------------- #
+
+def get_team_by_owner(member: discord.Member):
+    for role in member.roles:
+        if role.id in TEAM_OWNERS:
+            return TEAM_OWNERS[role.id]
+    return None
+
+
+def has_role(member, role_ids):
+    return any(role.id in role_ids for role in member.roles)
+
+
+def add_money(team, amount):
+    cursor.execute("""
+        INSERT INTO money (team, balance)
+        VALUES (%s, %s)
+        ON CONFLICT (team)
+        DO UPDATE SET balance = money.balance + %s
+    """, (team, amount, amount))
+
+    conn.commit()
 
 def get_team_by_owner(member: discord.Member):
     for role in member.roles:
@@ -105,11 +131,16 @@ async def roblox_headshot(username: str):
 @bot.tree.command(name="money")
 async def money(interaction: discord.Interaction):
     team = get_team_by_owner(interaction.user)
+
     if not team:
         return await interaction.response.send_message("No team found.", ephemeral=True)
 
-    bal = data["money"].get(team, 0)
-    await interaction.response.send_message(f"💰 {team} Balance: ${bal}")
+    cursor.execute("SELECT balance FROM money WHERE team = %s", (team,))
+    result = cursor.fetchone()
+
+    balance = result[0] if result else 0
+
+    await interaction.response.send_message(f"💰 {team} Balance: ${balance}")
 
 # ---------------- SIGN ---------------- #
 
@@ -181,11 +212,9 @@ async def moneylend(interaction: discord.Interaction, team: str, amount: int):
 
     team = team.title()
 
-    data["money"][team] = data["money"].get(team, 0) + amount
-    save_data(data)
+    add_money(team, amount)
 
     await interaction.response.send_message(f"{team} received ${amount}")
-
 # ---------------- NEGOTIATE ---------------- #
 
 class NegotiationView(discord.ui.View):
@@ -341,6 +370,18 @@ MVP: {mvp.mention}
 
 @bot.event
 async def on_ready():
+@bot.event
+async def on_ready():
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS money (
+            team TEXT PRIMARY KEY,
+            balance INTEGER
+        )
+    """)
+    conn.commit()
+
+    await bot.tree.sync()
+    print(f"Bot ready as {bot.user}")
     await bot.tree.sync()
     print(f"Bot ready as {bot.user}")
 
