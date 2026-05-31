@@ -295,52 +295,154 @@ async def moneylend(interaction: discord.Interaction, team: str, amount: int):
     add_money(team, amount)
 
     await interaction.response.send_message(f"{team} received ${amount}")
+    
 # ---------------- NEGOTIATE ---------------- #
 
 class NegotiationView(discord.ui.View):
-    def __init__(self, team_name, player_name, amount):
+    def __init__(self, seller_team, buyer_team, player: discord.Member, amount: int, manager: discord.Member):
         super().__init__(timeout=300)
 
-        self.team_name = team_name
-        self.player_name = player_name
+        self.seller_team = seller_team
+        self.buyer_team = buyer_team
+        self.player = player
         self.amount = amount
+        self.manager = manager
 
+        self.finished = False
+        self.player_roles = [r.id for r in player.roles]
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user != self.manager:
+            await interaction.response.send_message(
+                "❌ You are not allowed to respond to this negotiation.",
+                ephemeral=True
+            )
+            return False
+
+        if self.finished:
+            await interaction.response.send_message(
+                "❌ This negotiation was already processed.",
+                ephemeral=True
+            )
+            return False
+
+        return True
+
+    # ---------------- ACCEPT ---------------- #
     @discord.ui.button(label="✅ Accept", style=discord.ButtonStyle.green)
     async def accept_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        for item in self.children:
-            item.disabled = True
 
+        if self.finished:
+            return await interaction.response.send_message("Already processed.", ephemeral=True)
+
+        guild = interaction.guild
+
+        # ---------------- CHECK MONEY ---------------- #
+        cursor.execute(
+            "SELECT balance FROM money WHERE team = %s",
+            (self.buyer_team,)
+        )
+        row = cursor.fetchone()
+        buyer_balance = row[0] if row else 0
+
+        if buyer_balance < self.amount:
+            return await interaction.response.send_message(
+                "❌ Not enough funds.",
+                ephemeral=True
+            )
+
+        self.finished = True
+
+        # ---------------- TRANSFER MONEY ---------------- #
+        cursor.execute(
+            "UPDATE money SET balance = balance - %s WHERE team = %s",
+            (self.amount, self.buyer_team)
+        )
+
+        cursor.execute(
+            "UPDATE money SET balance = balance + %s WHERE team = %s",
+            (self.amount, self.seller_team)
+        )
+
+        conn.commit()
+
+        # ---------------- TRANSFER PLAYER ---------------- #
+        for team, role_id in TEAM_ROLES.items():
+            role = guild.get_role(role_id)
+            if role and role.id in self.player_roles:
+                await self.player.remove_roles(role)
+
+        role_id = TEAM_ROLES.get(self.buyer_team)
+new_role = guild.get_role(role_id) if role_id else None
+        if new_role:
+            await self.player.add_roles(new_role)
+
+        # ---------------- PLAYER NOTE ---------------- #
+        cursor.execute("""
+            INSERT INTO player_notes (user_id, note)
+            VALUES (%s, %s)
+            ON CONFLICT (user_id)
+            DO UPDATE SET note = EXCLUDED.note
+        """, (
+            self.player.id,
+            f"Transferred to {self.buyer_team} for ${self.amount:,}"
+        ))
+        conn.commit()
+
+        # ---------------- DM MANAGER ---------------- #
+        try:
+            await self.manager.send(
+                f"✅ ACCEPTED\nPlayer: {self.player.display_name}\n"
+                f"Team: {self.buyer_team}\n"
+                f"Fee: ${self.amount:,}"
+            )
+        except:
+            pass
+
+        # ---------------- UPDATE MESSAGE ---------------- #
         embed = discord.Embed(
             title="✅ Negotiation Accepted",
             description=(
-                f"Team: **{self.team_name}**\n"
-                f"Player: **{self.player_name}**\n"
-                f"Offer: **${self.amount:,}**"
+                f"**{self.player.display_name}** moved from **{self.seller_team}** "
+                f"to **{self.buyer_team}** for **${self.amount:,}**"
             ),
             color=discord.Color.green()
         )
 
-        await interaction.response.send_message(embed=embed)
-        await interaction.message.edit(view=self)
-
-    @discord.ui.button(label="❌ Decline", style=discord.ButtonStyle.red)
-    async def decline_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         for item in self.children:
             item.disabled = True
 
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    # ---------------- DECLINE ---------------- #
+    @discord.ui.button(label="❌ Decline", style=discord.ButtonStyle.red)
+    async def decline_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+        if self.finished:
+            return await interaction.response.send_message("Already processed.", ephemeral=True)
+
+        self.finished = True
+
+        try:
+            await self.manager.send(
+                f"❌ DECLINED\nPlayer: {self.player.display_name}"
+            )
+        except:
+            pass
+
         embed = discord.Embed(
             title="❌ Negotiation Declined",
-            description=(
-                f"Team: **{self.team_name}**\n"
-                f"Player: **{self.player_name}**\n"
-                f"Offer: **${self.amount:,}**"
-            ),
+            description=f"Offer for **{self.player.display_name}** was rejected.",
             color=discord.Color.red()
         )
 
-        await interaction.response.send_message(embed=embed)
-        await interaction.message.edit(view=self)
+        for item in self.children:
+            item.disabled = True
 
+        await interaction.response.edit_message(embed=embed, view=self)
+
+
+# ---------------- COMMAND ---------------- #
 
 @bot.tree.command(name="negotiate", guild=discord.Object(id=GUILD_ID))
 async def negotiate(
@@ -349,42 +451,57 @@ async def negotiate(
     amount: int,
     manager: discord.Member
 ):
-    team_name = get_team_by_owner(interaction.user)
 
-    if not team_name:
-        team_name = interaction.user.display_name
+    buyer_team = get_team_by_owner(interaction.user)
+
+    if not buyer_team:
+        return await interaction.response.send_message(
+            "❌ You are not assigned to a team.",
+            ephemeral=True
+        )
+
+    seller_team = None
+    for role in player.roles:
+        if role.id in TEAM_OWNERS:
+            seller_team = TEAM_OWNERS[role.id]
+            break
+
+    if not seller_team:
+        return await interaction.response.send_message(
+            "❌ Player is not in a team.",
+            ephemeral=True
+        )
 
     embed = discord.Embed(
         title="EFL Negotiation Offer",
         description=(
-            f"Team: **{team_name}**\n"
+            f"Buyer: **{buyer_team}**\n"
+            f"Seller: **{seller_team}**\n"
             f"Player: **{player.display_name}**\n"
-            f"Offer: **${amount:,}**\n\n"
-            f"Click a button below."
+            f"Offer: **${amount:,}**"
         ),
         color=discord.Color.gold()
     )
 
     view = NegotiationView(
-        team_name,
-        player.display_name,
-        amount
+        seller_team,
+        buyer_team,
+        player,
+        amount,
+        manager
     )
 
     try:
-        await manager.send(
-            embed=embed,
-            view=view
-        )
+        await manager.send(embed=embed, view=view)
 
         await interaction.response.send_message(
-            "Offer sent successfully.",
+            "✅ Offer sent successfully.",
             ephemeral=True
         )
 
     except discord.Forbidden:
         await interaction.response.send_message(
-            "That manager has DMs disabled.",
+            "❌ That manager has DMs disabled.",
             ephemeral=True
         )
 # ---------------- FREE AGENT ---------------- #
@@ -497,9 +614,19 @@ async def on_app_command_completion(
 
 @bot.event
 async def on_ready():
+    if getattr(bot, "ready_once", False):
+        return
+
+    bot.ready_once = True
+
     guild = discord.Object(id=GUILD_ID)
+
+    # clear + re-sync cleanly (prevents duplicates)
+    bot.tree.clear_commands(guild=guild)
     await bot.tree.sync(guild=guild)
 
     print(f"Synced clean commands as {bot.user}")
+
+
 bot.run(TOKEN)
 
