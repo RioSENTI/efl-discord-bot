@@ -210,6 +210,49 @@ async def addmoney(
         ephemeral=True
     )
 
+# ---------------- REMOVE MONEY ---------------- #
+
+@bot.tree.command(name="removemoney", guild=discord.Object(id=GUILD_ID))
+@app_commands.describe(team="Team name", amount="Amount to remove")
+async def removemoney(
+    interaction: discord.Interaction,
+    team: str,
+    amount: int
+):
+
+    # admin permission check
+    if not has_role(interaction.user, ROLE_PERMS["admin_ops"]):
+        return await interaction.response.send_message(
+            "No permission.",
+            ephemeral=True
+        )
+
+    team = team.title()
+
+    # subtract money
+    cursor.execute("""
+        INSERT INTO money (team, balance)
+        VALUES (%s, 0)
+        ON CONFLICT (team)
+        DO UPDATE SET balance = money.balance - %s
+    """, (team, amount))
+
+    conn.commit()
+
+    # get updated balance
+    cursor.execute(
+        "SELECT balance FROM money WHERE team = %s",
+        (team,)
+    )
+
+    result = cursor.fetchone()
+    balance = result[0] if result else 0
+
+    await interaction.response.send_message(
+        f"💸 Removed ${amount:,} from **{team}**\nNew Balance: ${balance:,}",
+        ephemeral=True
+    )
+
 # ---------------- RELEASE ---------------- #
 
 @bot.tree.command(name="release", guild=discord.Object(id=GUILD_ID))
