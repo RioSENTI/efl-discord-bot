@@ -367,16 +367,16 @@ class NegotiationView(discord.ui.View):
         conn.commit()
 
         # ---------------- TRANSFER PLAYER ---------------- #
-        for team, role_id in TEAM_ROLES.items():
-            role = guild.get_role(role_id)
-            if role and role.id in self.player_roles:
-                await self.player.remove_roles(role)
+for team, role_id in TEAM_ROLES.items():
+    role = guild.get_role(role_id)
+    if role and role.id in self.player_roles:
+        await self.player.remove_roles(role)
 
-        role_id = TEAM_ROLES.get(self.buyer_team)
+role_id = TEAM_ROLES.get(self.buyer_team)
 new_role = guild.get_role(role_id) if role_id else None
-        if new_role:
-            await self.player.add_roles(new_role)
 
+if new_role:
+    await self.player.add_roles(new_role)
         # ---------------- PLAYER NOTE ---------------- #
         cursor.execute("""
             INSERT INTO player_notes (user_id, note)
