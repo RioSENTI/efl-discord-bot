@@ -370,8 +370,6 @@ MVP: {mvp.mention}
 
 @bot.event
 async def on_ready():
-@bot.event
-async def on_ready():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS money (
             team TEXT PRIMARY KEY,
@@ -380,8 +378,6 @@ async def on_ready():
     """)
     conn.commit()
 
-    await bot.tree.sync()
-    print(f"Bot ready as {bot.user}")
     await bot.tree.sync()
     print(f"Bot ready as {bot.user}")
 
