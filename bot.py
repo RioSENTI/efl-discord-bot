@@ -20,6 +20,7 @@ CHANNELS = {
     "results": 1507837429430620241,
     "signings": 1507838212687790203,
     "releases": 1507838227996737587,
+    "logs": 1510724073037238354,
 }
 
 TEAM_OWNERS = {
@@ -105,25 +106,18 @@ def add_money(team, amount):
         ON CONFLICT (team)
         DO UPDATE SET balance = money.balance + %s
     """, (team, amount, amount))
-
     conn.commit()
 
-def get_team_by_owner(member: discord.Member):
-    for role in member.roles:
-        if role.id in TEAM_OWNERS:
-            return TEAM_OWNERS[role.id]
-    return None
-
-def has_role(member, role_ids):
-    return any(role.id in role_ids for role in member.roles)
 
 async def roblox_headshot(username: str):
     url = f"https://thumbnails.roblox.com/v1/users/avatar-headshot?username={username}&size=420x420&format=Png&isCircular=false"
+    
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             if resp.status == 200:
                 js = await resp.json()
                 return js["data"][0]["imageUrl"]
+    
     return None
 
 # ---------------- COMMANDS ---------------- #
@@ -172,6 +166,47 @@ async def sign(interaction: discord.Interaction, player: discord.Member, team: s
 
     await channel.send(embed=embed)
     await interaction.response.send_message("Signed successfully.", ephemeral=True)
+    
+# ---------------- ADD MONEY ---------------- #
+
+@bot.tree.command(name="addmoney")
+@app_commands.describe(team="Team name", amount="Amount to add")
+async def addmoney(
+    interaction: discord.Interaction,
+    team: str,
+    amount: int
+):
+
+    # admin permission check
+    if not has_role(interaction.user, ROLE_PERMS["admin_ops"]):
+        return await interaction.response.send_message(
+            "No permission.",
+            ephemeral=True
+        )
+
+    team = team.title()
+
+    cursor.execute("""
+        INSERT INTO money (team, balance)
+        VALUES (%s, %s)
+        ON CONFLICT (team)
+        DO UPDATE SET balance = money.balance + %s
+    """, (team, amount, amount))
+
+    conn.commit()
+
+    cursor.execute(
+        "SELECT balance FROM money WHERE team = %s",
+        (team,)
+    )
+
+    result = cursor.fetchone()
+    balance = result[0] if result else 0
+
+    await interaction.response.send_message(
+        f"💰 Added ${amount:,} to **{team}**\nNew Balance: ${balance:,}",
+        ephemeral=True
+    )
 
 # ---------------- RELEASE ---------------- #
 
@@ -333,6 +368,12 @@ async def freeagent(interaction: discord.Interaction, roblox_username: str, posi
 @bot.tree.command(name="announcement")
 async def announcement(interaction: discord.Interaction, message: str):
 
+    if not has_role(interaction.user, ROLE_PERMS["admin_ops"]):
+        return await interaction.response.send_message(
+            "No permission.",
+            ephemeral=True
+        )
+
     embed = discord.Embed(
         title="📢 Announcement",
         description=message,
@@ -342,12 +383,29 @@ async def announcement(interaction: discord.Interaction, message: str):
     channel = interaction.guild.get_channel(CHANNELS["announcements"])
     await channel.send(embed=embed)
 
-    await interaction.response.send_message("Sent.", ephemeral=True)
+    await interaction.response.send_message(
+        "Sent.",
+        ephemeral=True
+    )
 
 # ---------------- RESULT ---------------- #
 
 @bot.tree.command(name="result")
-async def result(interaction: discord.Interaction, team1: str, team2: str, score1: int, score2: int, status: str, mvp: discord.Member):
+async def result(
+    interaction: discord.Interaction,
+    team1: str,
+    team2: str,
+    score1: int,
+    score2: int,
+    status: str,
+    mvp: discord.Member
+):
+
+    if not has_role(interaction.user, ROLE_PERMS["admin_ops"]):
+        return await interaction.response.send_message(
+            "No permission.",
+            ephemeral=True
+        )
 
     embed = discord.Embed(
         title="🏆 Match Result",
@@ -364,22 +422,33 @@ MVP: {mvp.mention}
     channel = interaction.guild.get_channel(CHANNELS["results"])
     await channel.send(embed=embed)
 
-    await interaction.response.send_message("Result posted.", ephemeral=True)
-
-# ---------------- START ---------------- #
+    await interaction.response.send_message(
+        "Result posted.",
+        ephemeral=True
+    )
+    
+# ---------------- COMMAND LOGGING ---------------- #
 
 @bot.event
-async def on_ready():
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS money (
-            team TEXT PRIMARY KEY,
-            balance INTEGER
-        )
-    """)
-    conn.commit()
+async def on_app_command_completion(
+    interaction: discord.Interaction,
+    command: app_commands.Command
+):
+    try:
+        log_channel = interaction.guild.get_channel(CHANNELS["logs"])
 
-    await bot.tree.sync()
-    print(f"Bot ready as {bot.user}")
+        if not log_channel:
+            return
+
+        await log_channel.send(
+            f"👤 User: {interaction.user.mention}\n"
+            f"🆔 ID: {interaction.user.id}\n"
+            f"⚡ Command: /{command.name}\n"
+            f"🏠 Server: {interaction.guild.name}"
+        )
+
+    except Exception as e:
+        print(f"Logging Error: {e}")
 
 bot.run(TOKEN)
 
