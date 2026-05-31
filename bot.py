@@ -14,6 +14,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 conn = psycopg2.connect(DATABASE_URL)
 cursor = conn.cursor()
 
+GUILD_ID = 1507809911437000837  # your Discord server ID
+
 CHANNELS = {
     "announcements": 1507838489587224576,
     "freeagency": 1507870807479812197,
@@ -122,7 +124,7 @@ async def roblox_headshot(username: str):
 
 # ---------------- COMMANDS ---------------- #
 
-@bot.tree.command(name="money")
+@bot.tree.command(name="money", guild=discord.Object(id=GUILD_ID))
 async def money(interaction: discord.Interaction):
     team = get_team_by_owner(interaction.user)
 
@@ -138,7 +140,7 @@ async def money(interaction: discord.Interaction):
 
 # ---------------- SIGN ---------------- #
 
-@bot.tree.command(name="sign")
+@bot.tree.command(name="sign", guild=discord.Object(id=GUILD_ID))
 @app_commands.describe(player="Player", team="Team")
 async def sign(interaction: discord.Interaction, player: discord.Member, team: str):
 
@@ -169,7 +171,7 @@ async def sign(interaction: discord.Interaction, player: discord.Member, team: s
     
 # ---------------- ADD MONEY ---------------- #
 
-@bot.tree.command(name="addmoney")
+@bot.tree.command(name="addmoney", guild=discord.Object(id=GUILD_ID))
 @app_commands.describe(team="Team name", amount="Amount to add")
 async def addmoney(
     interaction: discord.Interaction,
@@ -210,7 +212,7 @@ async def addmoney(
 
 # ---------------- RELEASE ---------------- #
 
-@bot.tree.command(name="release")
+@bot.tree.command(name="release", guild=discord.Object(id=GUILD_ID))
 async def release(interaction: discord.Interaction, player: discord.Member, reason: str):
 
     if not has_role(interaction.user, ROLE_PERMS["team_ops"]):
@@ -239,7 +241,7 @@ async def release(interaction: discord.Interaction, player: discord.Member, reas
 
 # ---------------- MONEY LEND ---------------- #
 
-@bot.tree.command(name="moneylend")
+@bot.tree.command(name="moneylend", guild=discord.Object(id=GUILD_ID))
 async def moneylend(interaction: discord.Interaction, team: str, amount: int):
 
     if not has_role(interaction.user, ROLE_PERMS["team_ops"]):
@@ -297,7 +299,7 @@ class NegotiationView(discord.ui.View):
         await interaction.message.edit(view=self)
 
 
-@bot.tree.command(name="negotiate")
+@bot.tree.command(name="negotiate", guild=discord.Object(id=GUILD_ID))
 async def negotiate(
     interaction: discord.Interaction,
     player: discord.Member,
@@ -344,7 +346,7 @@ async def negotiate(
         )
 # ---------------- FREE AGENT ---------------- #
 
-@bot.tree.command(name="freeagent")
+@bot.tree.command(name="freeagent", guild=discord.Object(id=GUILD_ID))
 async def freeagent(interaction: discord.Interaction, roblox_username: str, position: str, notes: str):
 
     url = await roblox_headshot(roblox_username)
@@ -365,7 +367,7 @@ async def freeagent(interaction: discord.Interaction, roblox_username: str, posi
 
 # ---------------- ANNOUNCEMENT ---------------- #
 
-@bot.tree.command(name="announcement")
+@bot.tree.command(name="announcement", guild=discord.Object(id=GUILD_ID))
 async def announcement(interaction: discord.Interaction, message: str):
 
     if not has_role(interaction.user, ROLE_PERMS["admin_ops"]):
@@ -390,7 +392,7 @@ async def announcement(interaction: discord.Interaction, message: str):
 
 # ---------------- RESULT ---------------- #
 
-@bot.tree.command(name="result")
+@bot.tree.command(name="result", guild=discord.Object(id=GUILD_ID))
 async def result(
     interaction: discord.Interaction,
     team1: str,
@@ -449,6 +451,30 @@ async def on_app_command_completion(
 
     except Exception as e:
         print(f"Logging Error: {e}")
+
+@bot.event
+async def on_ready():
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS money (
+            team TEXT PRIMARY KEY,
+            balance INTEGER
+        )
+    """)
+    conn.commit()
+
+    try:
+        # FORCE GUILD SYNC (recommended for Railway)
+        GUILD_ID = 1507809911437000837  # <-- put your server ID here
+
+        guild = discord.Object(id=GUILD_ID)
+        await bot.tree.sync(guild=guild)
+
+        print(f"Synced slash commands to guild {GUILD_ID}")
+
+    except Exception as e:
+        print(f"Sync error: {e}")
+
+    print(f"Bot ready as {bot.user}")
 
 bot.run(TOKEN)
 
