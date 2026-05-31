@@ -465,7 +465,7 @@ async def on_ready():
     try:
         guild = discord.Object(id=GUILD_ID)
 
-        await bot.tree.clear_commands(guild=guild)  # 🔥 removes duplicates
+          # 🔥 removes duplicates
         await bot.tree.sync(guild=guild)
 
         print("Cleaned + synced commands")
