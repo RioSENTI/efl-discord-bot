@@ -9,7 +9,7 @@ import aiohttp
 # ---------------- CONFIG ---------------- #
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-DATABASE_URL = os.getenv("postgresql://postgres:azUMsAnjSitSPHzQMuOeERutiItpzKmU@postgres.railway.internal:5432/railway")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 conn = psycopg2.connect(DATABASE_URL)
 cursor = conn.cursor()
